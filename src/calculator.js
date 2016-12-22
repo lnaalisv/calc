@@ -49,7 +49,7 @@ export const isDivisionExpression = expression =>
 
 // plusAndMinusToAST => Expression, Expression, Token, Token, [Token] -> Expression
 // A helper for tokensToAST
-// Creates AST for plus and minus.
+// Creates AST for plus and minus operations.
 const plusAndMinusToAST = (precedentExpression, currentExpression, numberToken, operatorToken, restTokens) => {
     let newExpression;
 
@@ -69,7 +69,7 @@ const plusAndMinusToAST = (precedentExpression, currentExpression, numberToken, 
 
 // divideAndMultiplyToAST => Expression, Expression, Token, Token, [Token] -> Expression
 // A helper for tokensToAST
-// Creates AST for division and multiply
+// Creates AST for division and multiply operations.
 export const divideAndMultiplyToAST = (precedentExpression, currentExpression, numberToken, operatorToken, restTokens) => {
     // multiplication or division
     const newExpression = Expression.Calculation(numberToken, operatorToken, Expression.Empty);
@@ -139,7 +139,15 @@ export const calculateAST = ast =>
         })
     });
 
+// throw error if no tokens
+export const throwIfEmpty = tokens => {
+    if (R.isEmpty(tokens)) {
+        throw Error('No valid calculation literals found.');
+    }
+    return tokens;
+};
+
 // calculate => String -> Number
 // Calculates the result for the given calculation string
 export const calculate = str =>
-    R.compose(calculateAST, tokensToAST(null, null), tokenize)(str);
+    R.compose(calculateAST, tokensToAST(null, null), throwIfEmpty, tokenize)(str);

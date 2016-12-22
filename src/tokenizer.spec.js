@@ -12,24 +12,11 @@ test('splitExpression should do something', tape => {
     tape.deepEqual(splitExpression('foo'), ['f', 'o', 'o']);
 });
 
-test('splitExpression should do something else', tape => {
-    tape.plan(1);
-    tape.deepEqual(splitExpression('foo'), ['f', 'o', 'o']);
-});
-
 test('toNumberToken create Token.Number from 123.4', tape => {
     tape.plan(2);
     const token = toNumberToken('123.4');
     tape.ok(token instanceof Token.Number);
     tape.equal(token.value, 123.4);
-});
-
-test('toOperatorToken create parenthesis tokens from ( and )', tape => {
-    tape.plan(2);
-    const left = toOperatorToken('(');
-    const right = toOperatorToken(')');
-    tape.ok(left == Token.LeftParenthesis);
-    tape.ok(right == Token.RightParenthesis);
 });
 
 test('toOperatorToken create operator tokens from +, -, *, /', tape => {
@@ -54,9 +41,9 @@ test('tokenize should tokenize "1 + 1"', tape => {
 });
 
 
-test('tokenize should tokenize "1/999*1.2 +40*(3-0.1)"', tape => {
+test('tokenize should tokenize "1/999*1.2 +40*3-0.1"', tape => {
     tape.plan(1);
-    tape.deepEqual(tokenize('1/999*1.2 +40*(3-0.1)'), [
+    tape.deepEqual(tokenize('1/999*1.2 +40*3-0.1'), [
         Token.Number(1),
         Token.Division,
         Token.Number(999),
@@ -65,11 +52,9 @@ test('tokenize should tokenize "1/999*1.2 +40*(3-0.1)"', tape => {
         Token.Plus,
         Token.Number(40),
         Token.Multiplication,
-        Token.LeftParenthesis,
         Token.Number(3),
         Token.Minus,
-        Token.Number(0.1),
-        Token.RightParenthesis
+        Token.Number(0.1)
     ]);
 });
 

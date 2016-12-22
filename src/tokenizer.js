@@ -4,10 +4,9 @@ import daggy from 'daggy';
 export const operators = '+-*/';
 export const parentheses = '()';
 
+// types for tokens
 export const Token = daggy.taggedSum({
     Number: ['value'],
-    LeftParenthesis: [],
-    RightParenthesis: [],
     Plus: [],
     Minus: [],
     Multiplication: [],
@@ -15,13 +14,12 @@ export const Token = daggy.taggedSum({
     Empty: []
 });
 
+// mapping from char to token
 export const operatorToTokenMapping = {
     '+': Token.Plus,
     '-': Token.Minus,
     '*': Token.Multiplication,
-    '/': Token.Division,
-    '(': Token.LeftParenthesis,
-    ')': Token.RightParenthesis
+    '/': Token.Division
 };
 
 // String -> [Char]
