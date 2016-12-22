@@ -1,12 +1,4 @@
 
-/*
-  Expression = Number
-  Expression = ( Expression )
-  Expression = Expression Operator Expression
-
-  Operator = '+' | '-' | '*' | '/'
-*/
-
 import R from 'ramda';
 import daggy from 'daggy';
 
@@ -14,9 +6,14 @@ import { Token, tokenize } from './tokenizer';
 import { tokenToString, expressionToString} from './debug';
 
 // Types for Expressions
+/*
+  Expression = Number
+  Expression = Expression Operator Expression
+
+  Operator = '+' | '-' | '*' | '/'
+*/
 export const Expression = daggy.taggedSum({
     Number: ['value'],
-    ParenthesisExpression: [ 'expression' ],
     Calculation: [ 'left', 'operator', 'right' ],
     Empty: []
 });
