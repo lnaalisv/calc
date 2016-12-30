@@ -1,5 +1,4 @@
-import { calculate, calculateAST } from './calculator';
-import { tokenize } from './tokenizer';
+import { calculate } from './calculator';
 
 const args = process.argv;
 

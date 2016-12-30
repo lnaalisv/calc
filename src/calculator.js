@@ -1,150 +1,194 @@
 
 import R from 'ramda';
-import daggy from 'daggy';
 
-import { Token, tokenize } from './tokenizer';
-import { tokenToString, expressionToString} from './debug';
+import { Token, Expression, ASTStep } from './types';
+import { tokenize } from './tokenizer';
+import { tokenToString, expressionToString, stepToString } from './debug';
+import { notEquals,
+         tokenIsMinus,
+         tokenIsNumber,
+         tokenIsLeftParenthesis,
+         tokenIsOperator,
+         tokenIsDivision,
+         tokenIsMultiplyOrDivision,
+         expressionIsCalculation,
+         negateToken,
+         throwIfEmpty,
+         throwError } from './utils';
 
-// Types for Expressions
-/*
-  Expression = Number
-  Expression = Expression Operator Expression
+const { Calculation, Parenthesis, NegateParenthesis } = Expression;
+const { Final, Step, ParseError } = ASTStep;
 
-  Operator = '+' | '-' | '*' | '/'
-*/
-export const Expression = daggy.taggedSum({
-    Number: ['value'],
-    Calculation: [ 'left', 'operator', 'right' ],
-    Empty: []
-});
-
-// tokenIsNumber => Token -> Boolean
-// Checks if the given token is a number token.
-export const tokenIsNumber = token => token instanceof Token.Number;
-
-// tokenIsPlusOrMinus => Token -> Boolean
-// Checks if token is plus or minus token.
-export const tokenIsPlusOrMinus = token => token === Token.Plus || token === Token.Minus;
-
-// tokenIsMultiplication => Token -> Boolean
-// Checks if token is multiplication token.
-export const tokenIsMultiplication = token => token === Token.Multiplication;
-
-// tokenIsDivision => Token -> Boolean
-// Checks if token is division token.
-export const tokenIsDivision = token => token === Token.Division;
-
-// tokenIsMultiplicationOrDivision => Token -> Boolean
-// Checks if token is division or multiplication.
-export const tokenIsMultiplicationOrDivision = token =>
-    tokenIsDivision(token) || tokenIsMultiplication(token);
-
-// isDivisionExpression => Expression -> Boolean
-// Checks if the expression is division.
-export const isDivisionExpression = expression =>
-    tokenIsDivision(expression.operator);
-
-// plusAndMinusToAST => Expression, Expression, Token, Token, [Token] -> Expression
-// A helper for tokensToAST
-// Creates AST for plus and minus operations.
-const plusAndMinusToAST = (precedentExpression, currentExpression, numberToken, operatorToken, restTokens) => {
-    let newExpression;
-
-    if (precedentExpression) {
-        if (precedentExpression.right !== Expression.Empty) {
-            currentExpression.right = numberToken;
-        } else {
-            precedentExpression.right = numberToken;
-        }
-        newExpression = Expression.Calculation(precedentExpression, operatorToken, Expression.Empty);
-    } else {
-        newExpression = Expression.Calculation(numberToken, operatorToken, Expression.Empty);
+// finds out the index of matching right parenthesis recursively
+// not that the starting left parenthesis is not included in tokens
+// Token, Int, Int -> Int
+export const getMatchingRightParenthesisIndex = (tokens, acc=0, level=0) => {
+    const indexRight = tokens.indexOf(Token.RightParenthesis);
+    const indexLeft = tokens.indexOf(Token.LeftParenthesis);
+    if (R.equals(indexRight, -1)) {
+        return -1;
+    } else if(notEquals(indexLeft, -1) && R.lt(indexLeft, indexRight)) {
+        // case sub parentheses
+        return getMatchingRightParenthesisIndex(R.takeLast(tokens.length - (indexLeft + 1), tokens), acc + indexLeft  + 1, level + 1);
+    } else if(notEquals(indexRight, -1) && notEquals(level, 0)) {
+        // returning from sub parentheses
+        return getMatchingRightParenthesisIndex(R.takeLast(tokens.length - (indexRight + 1), tokens), acc + indexRight + 1, level - 1);
     }
-
-    return tokensToAST(newExpression, newExpression, restTokens);
+    return indexRight + acc;
 };
 
-// divideAndMultiplyToAST => Expression, Expression, Token, Token, [Token] -> Expression
-// A helper for tokensToAST
-// Creates AST for division and multiply operations.
-export const divideAndMultiplyToAST = (precedentExpression, currentExpression, numberToken, operatorToken, restTokens) => {
-    // multiplication or division
-    const newExpression = Expression.Calculation(numberToken, operatorToken, Expression.Empty);
+// convertToFinalIfNeeded => ASTStep -> ASTStep
+// Converts the step to ASTStep.Final if there are no more tokens
+export const convertToFinalIfNeeded = astStep =>
+    astStep.cata({
+        Final: R.always(astStep),
+        ParseError: R.always(astStep),
+        Step: (rootNode, tokens) => R.isEmpty(tokens) ? Final(rootNode) : astStep
+    });
 
-    if (currentExpression) {
-        currentExpression.right = newExpression;
-        return tokensToAST(precedentExpression, newExpression, restTokens);
+// replaceRootToken => ... -> Expression
+// Replaces the root node with the new calculation
+export const replaceRootToken = (rootNode, numberToken, operatorToken) =>
+    Calculation(Calculation(rootNode.left,
+                            rootNode.operator,
+                            expressionIsCalculation(rootNode.right)
+                                ? Calculation(rootNode.right.left, rootNode.right.operator, numberToken)
+                                : numberToken),
+                operatorToken,
+                Expression.Empty);
+
+// assocOperationToRight => ... -> Expression
+// adds the new AST nodes either to root.right or to root.right.right
+export const assocOperationToRight = (rootNode, numberToken, operatorToken) =>
+    expressionIsCalculation(rootNode.right)
+        ? Calculation(rootNode.left, rootNode.operator, Calculation(
+            Calculation(rootNode.right.left, rootNode.right.operator, numberToken),
+            operatorToken,
+            Expression.Empty))
+        : Calculation(rootNode.left, rootNode.operator, Calculation(numberToken, operatorToken, Expression.Empty));
+
+// astNewCalculation => ... -> Expression
+export const astNewCalculation = (rootNode, numberToken, operatorToken) =>
+    operatorToken.cata({
+        Plus: () => replaceRootToken(rootNode, numberToken, operatorToken),
+        Minus: () => replaceRootToken(rootNode, numberToken, operatorToken),
+        Multiply: () => tokenIsDivision(rootNode.operator)
+                            ? replaceRootToken(rootNode, numberToken, operatorToken)
+                            : assocOperationToRight(rootNode, numberToken, operatorToken),
+        Division: () => tokenIsMultiplyOrDivision(rootNode.operator)
+                            ? replaceRootToken(rootNode, numberToken, operatorToken)
+                            : assocOperationToRight(rootNode, numberToken, operatorToken)
+    });
+
+// astCalculationStep => ... -> ASTStep
+// Adds the new calculation AST either to root/root.right or root.right.right according
+// to the operation taken.
+export const astCalculationStep = (rootNode, numberToken, operatorToken, restTokens) =>
+    tokenIsOperator(operatorToken)
+        ? rootNode
+            ? Step(astNewCalculation(rootNode, numberToken, operatorToken), restTokens)
+            : Step(Calculation(numberToken, operatorToken, Expression.Empty), restTokens)
+        : ParseError(`Token is not operator ${operatorToken}`);
+
+// finalizeToRootNode => Expression, Token -> ASTStep
+export const finalizeToRootNode = (rootNode, numberToken) =>
+    rootNode.right === Expression.Empty
+        ? Step(Calculation(rootNode.left, rootNode.operator, numberToken), [])
+        : Step(Calculation(rootNode.left, rootNode.operator, Calculation(
+              rootNode.right.left,
+              rootNode.right.operator,
+              numberToken
+          )), []);
+
+// finalizeAST => Expression, Token -> ASTStep
+export const finalizeAST = (rootNode, numberToken) =>
+    rootNode ? finalizeToRootNode(rootNode, numberToken) : Step(Expression.Number(numberToken.value), []);
+
+// astParenthesisCalculationStep => Expression, Parenthesis constructor, [Token] -> ASTStep
+export const astParenthesisCalculationStep = (rootNode, parenthesisConstructor, tokens) => {
+    const matchingIndex = getMatchingRightParenthesisIndex(tokens);
+    if (matchingIndex === -1) {
+        return ParseError('Matching parentheses not found');
+    } else if(matchingIndex === 0) {
+        return ParseError('Empty parenthesis found');
     }
-    return tokensToAST(newExpression, newExpression, restTokens);
+    // the right parenthesis is the first token of remainingTokens
+    const [ subTokens, remainingTokens ] = R.splitAt(matchingIndex, tokens);
+    const parenthesisExpression = parenthesisConstructor(tokensToAST(subTokens));
+    if (remainingTokens.length == 1) {
+        // finalizing parenthesis expression
+        return rootNode
+            ? finalizeAST(rootNode, parenthesisExpression)
+            : Step(parenthesisExpression, []);
+    }
+    return astCalculationStep(rootNode, parenthesisExpression, remainingTokens[1], R.takeLast(remainingTokens.length - 2, remainingTokens));
 };
 
-// finishingTokenToAST => Expression, Expression, Token -> Expression
-// A helper for tokensToAST, processes the last token of the given token set.
-// If we have an unfinished expression, puts the last token to the right operand.
-// Otherwise just returns the number.
-export const finishingTokenToAST = (precedentExpression, currentExpression, numberToken) => {
-    // last token of the given input
-    if (currentExpression) {
-        // complete the expression
-        currentExpression.right = numberToken;
-        return precedentExpression;
-    }
-    // we don't have an expression, only numer
-    return Expression.Number(numberToken.value)
-}
+// negateParenthesisStep => Expression, Token, [Token] -> 
+export const negateParenthesisStep = (rootNode, maybeParenthesis, restTokens) =>
+    tokenIsLeftParenthesis(maybeParenthesis)
+        ? astParenthesisCalculationStep(rootNode, NegateParenthesis, restTokens)
+        : ParseError(`Invalid token after negation ${tokenToString(maybeParenthesis)}`);
 
-// tokensToAST => Expression -> Expression -> [Token] -> Expression
-// Recursive way to create an AST from the given list of tokens
-// Processes tokens a number and an operator at one time
-export const tokensToAST = R.curry((precedentExpression, currentExpression, [ firstToken, ...tokens]) => {
+// numberOperatorStep => ... -> ASTStep
+// Just a helper for processASTStep
+export const numberOperatorStep = (rootNode, numberToken, operatorToken, restTokens) =>
+    operatorToken ? astCalculationStep(rootNode, numberToken, operatorToken, restTokens) : finalizeAST(rootNode, numberToken);
 
-    // peek ahead to see the operator
-    const operatorToken = R.head(tokens);
+// ASTStep -> ASTStep
+// The main token parsing step function. Reads max 2 tokens and creates a new AST Step and returns it
+export const processASTStep = ({ rootNode, tokens: [ firstToken, secondToken, thirdToken, ...restTokens ]}) => 
+    firstToken
+        ? R.cond([
+                [ tokenIsMinus , () => tokenIsNumber(secondToken)
+                                        ? numberOperatorStep(rootNode, negateToken(secondToken), thirdToken, restTokens)
+                                        : negateParenthesisStep(rootNode, secondToken, [thirdToken, ...restTokens]) ],
+                [ tokenIsNumber, () => numberOperatorStep(rootNode, firstToken, secondToken, [thirdToken, ...restTokens]) ],
+                [ tokenIsLeftParenthesis, () => astParenthesisCalculationStep(rootNode, Parenthesis, [secondToken, thirdToken,...restTokens])],
+                [ R.T, () => ParseError(`First token of a step is not a number, negation or parenthesis: ${tokenToString(firstToken)}`) ]
+            ])(firstToken)
+        : Final(Expression.Empty);
 
-    // expect the first token to be a number token
-    if(tokenIsNumber(firstToken)) {
-        // invert divisions to multiplication
-        if (currentExpression && isDivisionExpression(currentExpression)) {
-            currentExpression.operator = Token.Multiplication;
-            firstToken = Token.Number(1/firstToken.value);
-        }
-        // three cases
-        // 1. Next operation is + or -
-        // 2. Next operation is * or /
-        // 3. No next operation, possibly a finishing token to a previous operation
-        if (tokenIsPlusOrMinus(operatorToken)) {
-            return plusAndMinusToAST(precedentExpression, currentExpression, firstToken, operatorToken, R.tail(tokens));
-        } else if(tokenIsMultiplicationOrDivision(operatorToken)) {
-            return divideAndMultiplyToAST(precedentExpression, currentExpression, firstToken, operatorToken, R.tail(tokens));
-        }
-        return finishingTokenToAST(precedentExpression, currentExpression, firstToken);
-    } else {
-        throw Error('Parse error: ' + firstToken);
-    }
-});
+// processASTSteps => ASTStep -> ASTStep.Final
+// The main parsing function. Creates the AST tree and wraps it in ASTStep.Final
+export const processASTSteps = astStep =>
+    astStep.cata({
+        Final: R.always(astStep),
+        ParseError: R.always(astStep),
+        Step: () => processASTSteps(convertToFinalIfNeeded(processASTStep(astStep)))
+    });
+
+// liftASTStep => [Token] -> ASTStep
+export const liftASTStep = tokens =>
+    ASTStep.Step(null, tokens);
+
+// foldASTStep => ASTStep -> Expression
+export const foldASTStep = astStep =>
+    astStep.cata({
+        ParseError: message => { throw Error(message); },
+        Final: R.identity,
+        Step: () => { throw Error('AST parsing finished suddenly without finalizing the AST'); }
+    });
+
+// tokensToAST => [ Token ] -> Expression
+const tokensToAST = R.compose(foldASTStep, processASTSteps, liftASTStep)
 
 // calculateAST => Expression -> Number
 // Performs the calculations on the AST, returns the final result.
 export const calculateAST = ast =>
     ast.cata({
         Number: R.identity,
+        Parenthesis: expr => calculateAST(expr),
+        NegateParenthesis: expr => R.negate(calculateAST(expr)),
         Calculation: (l, operator, r) => operator.cata({
             Plus: () => calculateAST(l) + calculateAST(r),
             Minus: () => calculateAST(l) - calculateAST(r),
-            Multiplication: () => calculateAST(l) * calculateAST(r),
-            Division: () => calculateAST(l) / calculateAST(r)
+            Multiply: () => calculateAST(l) * calculateAST(r),
+            Division: () => R.equals(r.value, 0) ? throwError('Division by zero') : calculateAST(l) / calculateAST(r)
         })
     });
-
-// throw error if no tokens
-export const throwIfEmpty = tokens => {
-    if (R.isEmpty(tokens)) {
-        throw Error('No valid calculation literals found.');
-    }
-    return tokens;
-};
 
 // calculate => String -> Number
 // Calculates the result for the given calculation string
 export const calculate = str =>
-    R.compose(calculateAST, tokensToAST(null, null), throwIfEmpty, tokenize)(str);
+    R.compose(calculateAST, tokensToAST, throwIfEmpty, tokenize)(str);

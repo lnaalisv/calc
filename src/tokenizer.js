@@ -1,25 +1,18 @@
 import R from 'ramda';
-import daggy from 'daggy';
+
+import { Token } from './types';
 
 export const operators = '+-*/';
 export const parentheses = '()';
-
-// types for tokens
-export const Token = daggy.taggedSum({
-    Number: ['value'],
-    Plus: [],
-    Minus: [],
-    Multiplication: [],
-    Division: [],
-    Empty: []
-});
 
 // mapping from char to token
 export const operatorToTokenMapping = {
     '+': Token.Plus,
     '-': Token.Minus,
-    '*': Token.Multiplication,
-    '/': Token.Division
+    '*': Token.Multiply,
+    '/': Token.Division,
+    '(': Token.LeftParenthesis,
+    ')': Token.RightParenthesis
 };
 
 // String -> [Char]
@@ -39,7 +32,7 @@ export const toNumberToken = str => Token.Number(parseFloat(str));
 
 export const toOperatorToken = str => operatorToTokenMapping[str];
 
-// [Char] -> [Token]
+// tokenizeSplitted => [Char] -> [Token]
 export const tokenizeSplitted = splitted => {
     const originalTokens = splitted.join('');
     const tokens = [];
@@ -68,6 +61,6 @@ export const tokenizeSplitted = splitted => {
     return tokens;
 };
 
-// String -> [Token]
+// tokenize => String -> [Token]
 export const tokenize = expression =>
     R.compose(tokenizeSplitted, filterWhitespace, splitExpression)(expression);
