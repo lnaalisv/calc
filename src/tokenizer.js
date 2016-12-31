@@ -36,8 +36,8 @@ export const tokenizeFiltered = ([first, ...restChars], stack='') =>
     R.cond([
         [ R.isNil, () => [] ],
         [ isParenthesisOrOperator, () => R.isEmpty(stack)
-                                            ? [ toOperatorToken(first), ...tokenizeFiltered(restChars, '')]
-                                            : [ toNumberToken(stack), toOperatorToken(first), ...tokenizeFiltered(restChars, '')] ],
+                                            ? [ toOperatorToken(first), ...tokenizeFiltered(restChars)]
+                                            : [ toNumberToken(stack), toOperatorToken(first), ...tokenizeFiltered(restChars)] ],
         [ stackedIsNumber, () => R.isEmpty(restChars)
                                             ? [ toNumberToken(stack + first) ]
                                             : [ ...tokenizeFiltered(restChars, stack + first) ] ],
