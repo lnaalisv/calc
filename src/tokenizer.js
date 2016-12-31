@@ -1,6 +1,7 @@
 import R from 'ramda';
 
 import { Token } from './types';
+import { throwError } from './utils';
 
 export const operators = '+-*/';
 export const parentheses = '()';
@@ -15,16 +16,12 @@ export const operatorToTokenMapping = {
     ')': Token.RightParenthesis
 };
 
-// String -> [Char]
-export const splitExpression = str => str.split('');
-
-export const isOperator = char => operators.indexOf(char) !== -1;
-
-export const isParenthesis = char => parentheses.indexOf(char) !== -1;
+export const isParenthesisOrOperator = char =>
+    operators.indexOf(char) !== -1 || parentheses.indexOf(char) !== -1;
 
 export const isNumber = str => !isNaN(parseFloat(str)) && isFinite(str);
 
-export const isNotWhitespace = str => str !== ' ';
+export const isNotWhitespace = c => !R.equals(' ', c);
 
 export const filterWhitespace = R.filter(isNotWhitespace);
 
@@ -32,35 +29,21 @@ export const toNumberToken = str => Token.Number(parseFloat(str));
 
 export const toOperatorToken = str => operatorToTokenMapping[str];
 
-// tokenizeSplitted => [Char] -> [Token]
-export const tokenizeSplitted = splitted => {
-    const originalTokens = splitted.join('');
-    const tokens = [];
-    let stack = '';
+export const stackedIsNumber = (first, stack) => isNumber(stack + first);
 
-    while(splitted.length > 0) {
-        const current = splitted.shift();
-
-        if (isOperator(current) || isParenthesis(current)) {
-            if(stack){
-                tokens.push(toNumberToken(stack));
-                stack = '';
-            }
-            tokens.push(toOperatorToken(current));
-        } else if(isNumber(stack + current)) {
-            stack += current;
-
-            if(splitted.length == 0) {
-                tokens.push(toNumberToken(stack));
-            }
-        } else {
-            throw Error(`Cannot parse ${originalTokens}, invalid token ${current}.`);
-        }
-    };
-
-    return tokens;
-};
+// tokenizeFiltered => String, String -> [Token]
+export const tokenizeFiltered = ([first, ...restChars], stack='') =>
+    R.cond([
+        [ R.isNil, () => [] ],
+        [ isParenthesisOrOperator, () => R.isEmpty(stack)
+                                            ? [ toOperatorToken(first), ...tokenizeFiltered(restChars, '')]
+                                            : [ toNumberToken(stack), toOperatorToken(first), ...tokenizeFiltered(restChars, '')] ],
+        [ stackedIsNumber, () => R.isEmpty(restChars)
+                                            ? [ toNumberToken(stack + first) ]
+                                            : [ ...tokenizeFiltered(restChars, stack + first) ] ],
+        [ R.T, () => throwError(`Parse error at ${first}`) ],
+    ])(first, stack);
 
 // tokenize => String -> [Token]
 export const tokenize = expression =>
-    R.compose(tokenizeSplitted, filterWhitespace, splitExpression)(expression);
+    R.compose(tokenizeFiltered, filterWhitespace)(expression);

@@ -1,16 +1,10 @@
 import test from 'tape';
 
 import { Token } from './types';
-import { splitExpression,
-         operatorToTokenMapping,
+import { operatorToTokenMapping,
          toNumberToken,
          toOperatorToken,
          tokenize } from './tokenizer';
-
-test('splitExpression should do something', tape => {
-    tape.plan(1);
-    tape.deepEqual(splitExpression('foo'), ['f', 'o', 'o']);
-});
 
 test('toNumberToken create Token.Number from 123.4', tape => {
     tape.plan(2);

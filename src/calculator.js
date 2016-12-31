@@ -184,7 +184,7 @@ export const calculateAST = ast =>
             Plus: () => calculateAST(l) + calculateAST(r),
             Minus: () => calculateAST(l) - calculateAST(r),
             Multiply: () => calculateAST(l) * calculateAST(r),
-            Division: () => R.equals(r.value, 0) ? throwError('Division by zero') : calculateAST(l) / calculateAST(r)
+            Division: () => R.equals(calculateAST(r), 0) ? throwError('Division by zero') : calculateAST(l) / calculateAST(r)
         })
     });
 

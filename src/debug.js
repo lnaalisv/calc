@@ -1,6 +1,6 @@
 import R from 'ramda';
 
-export const tokenToString = token => token ? token.cata({
+export const tokenToString = token => { console.log('tokenToString ' + token);return token ? token.cata({
     Number: val => val.toString(),
     Plus: () => '+',
     Minus: () => '-',
@@ -9,7 +9,7 @@ export const tokenToString = token => token ? token.cata({
     Empty: () => 'Empty',
     LeftParenthesis: () => '(',
     RightParenthesis: () => ')'
-}) : "Null token";
+}) : "Null token";};
 
 export const expressionToString = expr => expr ? expr.cata({
     Number: R.identity,
