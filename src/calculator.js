@@ -57,9 +57,9 @@ export const replaceRootToken = (rootNode, numberToken, operatorToken) =>
                 operatorToken,
                 Expression.Empty);
 
-// assocOperationToRight => ... -> Expression
+// assocOperationToRightMostEmptyNode => ... -> Expression
 // adds the new AST nodes either to root.right or to root.right.right
-export const assocOperationToRight = (rootNode, numberToken, operatorToken) =>
+export const assocOperationToRightMostEmptyNode = (rootNode, numberToken, operatorToken) =>
     expressionIsCalculation(rootNode.right)
         ? Calculation(rootNode.left, rootNode.operator, Calculation(
             Calculation(rootNode.right.left, rootNode.right.operator, numberToken),
@@ -67,28 +67,18 @@ export const assocOperationToRight = (rootNode, numberToken, operatorToken) =>
             Expression.Empty))
         : Calculation(rootNode.left, rootNode.operator, Calculation(numberToken, operatorToken, Expression.Empty));
 
-// astNewCalculation => ... -> Expression
-export const astNewCalculation = (rootNode, numberToken, operatorToken) =>
+// addCalculationToRootNode => ... -> Expression
+export const addCalculationToRootNode = (rootNode, numberToken, operatorToken) =>
     operatorToken.cata({
         Plus: () => replaceRootToken(rootNode, numberToken, operatorToken),
         Minus: () => replaceRootToken(rootNode, numberToken, operatorToken),
         Multiply: () => tokenIsDivision(rootNode.operator)
                             ? replaceRootToken(rootNode, numberToken, operatorToken)
-                            : assocOperationToRight(rootNode, numberToken, operatorToken),
+                            : assocOperationToRightMostEmptyNode(rootNode, numberToken, operatorToken),
         Division: () => tokenIsMultiplyOrDivision(rootNode.operator)
                             ? replaceRootToken(rootNode, numberToken, operatorToken)
-                            : assocOperationToRight(rootNode, numberToken, operatorToken)
+                            : assocOperationToRightMostEmptyNode(rootNode, numberToken, operatorToken)
     });
-
-// astCalculationStep => ... -> ASTStep
-// Adds the new calculation AST either to root/root.right or root.right.right according
-// to the operation taken.
-export const astCalculationStep = (rootNode, numberToken, operatorToken, restTokens) =>
-    tokenIsOperator(operatorToken)
-        ? rootNode
-            ? Step(astNewCalculation(rootNode, numberToken, operatorToken), restTokens)
-            : Step(Calculation(numberToken, operatorToken, Expression.Empty), restTokens)
-        : ParseError(`Token is not operator ${operatorToken}`);
 
 // finalizeToRootNode => Expression, Token -> ASTStep
 export const finalizeToRootNode = (rootNode, numberToken) =>
@@ -100,12 +90,22 @@ export const finalizeToRootNode = (rootNode, numberToken) =>
               numberToken
           )), []);
 
-// finalizeAST => Expression, Token -> ASTStep
-export const finalizeAST = (rootNode, numberToken) =>
+// astCalculationStep => ... -> ASTStep
+// Adds the new calculation AST either to root/root.right or root.right.right according
+// to the operation taken.
+export const astCalculationStep = (rootNode, numberToken, operatorToken, restTokens) =>
+    tokenIsOperator(operatorToken)
+        ? rootNode
+            ? Step(addCalculationToRootNode(rootNode, numberToken, operatorToken), restTokens)
+            : Step(Calculation(numberToken, operatorToken, Expression.Empty), restTokens)
+        : ParseError(`Token is not operator ${operatorToken}`);
+
+// finalStep => Expression, Token -> ASTStep
+export const finalStep = (rootNode, numberToken) =>
     rootNode ? finalizeToRootNode(rootNode, numberToken) : Step(Expression.Number(numberToken.value), []);
 
-// astParenthesisCalculationStep => Expression, Parenthesis constructor, [Token] -> ASTStep
-export const astParenthesisCalculationStep = (rootNode, parenthesisConstructor, tokens) => {
+// parenthesisStep => Expression, Parenthesis constructor, [Token] -> ASTStep
+export const parenthesisStep = (rootNode, parenthesisConstructor, tokens) => {
     const matchingIndex = getMatchingRightParenthesisIndex(tokens);
     if (matchingIndex === -1) {
         return ParseError('Matching parentheses not found');
@@ -118,7 +118,7 @@ export const astParenthesisCalculationStep = (rootNode, parenthesisConstructor, 
     if (remainingTokens.length == 1) {
         // finalizing parenthesis expression
         return rootNode
-            ? finalizeAST(rootNode, parenthesisExpression)
+            ? finalStep(rootNode, parenthesisExpression)
             : Step(parenthesisExpression, []);
     }
     return astCalculationStep(rootNode, parenthesisExpression, remainingTokens[1], R.takeLast(remainingTokens.length - 2, remainingTokens));
@@ -127,13 +127,13 @@ export const astParenthesisCalculationStep = (rootNode, parenthesisConstructor, 
 // negateParenthesisStep => Expression, Token, [Token] -> 
 export const negateParenthesisStep = (rootNode, maybeParenthesis, restTokens) =>
     tokenIsLeftParenthesis(maybeParenthesis)
-        ? astParenthesisCalculationStep(rootNode, NegateParenthesis, restTokens)
+        ? parenthesisStep(rootNode, NegateParenthesis, restTokens)
         : ParseError(`Invalid token after negation ${tokenToString(maybeParenthesis)}`);
 
-// numberOperatorStep => ... -> ASTStep
+// numberOrOperatorStep => ... -> ASTStep
 // Just a helper for processASTStep
-export const numberOperatorStep = (rootNode, numberToken, operatorToken, restTokens) =>
-    operatorToken ? astCalculationStep(rootNode, numberToken, operatorToken, restTokens) : finalizeAST(rootNode, numberToken);
+export const numberOrOperatorStep = (rootNode, numberToken, operatorToken, restTokens) =>
+    operatorToken ? astCalculationStep(rootNode, numberToken, operatorToken, restTokens) : finalStep(rootNode, numberToken);
 
 // ASTStep -> ASTStep
 // The main token parsing step function. Reads max 2 tokens and creates a new AST Step and returns it
@@ -141,10 +141,10 @@ export const processASTStep = ({ rootNode, tokens: [ firstToken, secondToken, th
     firstToken
         ? R.cond([
                 [ tokenIsMinus , () => tokenIsNumber(secondToken)
-                                        ? numberOperatorStep(rootNode, negateToken(secondToken), thirdToken, restTokens)
+                                        ? numberOrOperatorStep(rootNode, negateToken(secondToken), thirdToken, restTokens)
                                         : negateParenthesisStep(rootNode, secondToken, [thirdToken, ...restTokens]) ],
-                [ tokenIsNumber, () => numberOperatorStep(rootNode, firstToken, secondToken, [thirdToken, ...restTokens]) ],
-                [ tokenIsLeftParenthesis, () => astParenthesisCalculationStep(rootNode, Parenthesis, [secondToken, thirdToken,...restTokens])],
+                [ tokenIsNumber, () => numberOrOperatorStep(rootNode, firstToken, secondToken, [thirdToken, ...restTokens]) ],
+                [ tokenIsLeftParenthesis, () => parenthesisStep(rootNode, Parenthesis, [secondToken, thirdToken,...restTokens])],
                 [ R.T, () => ParseError(`First token of a step is not a number, negation or parenthesis: ${tokenToString(firstToken)}`) ]
             ])(firstToken)
         : Final(Expression.Empty);
