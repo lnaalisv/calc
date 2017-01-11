@@ -14,28 +14,11 @@ import { notEquals,
          expressionIsCalculation,
          negateToken,
          throwIfEmpty,
-         throwError } from './utils';
+         throwError,
+         getMatchingRightParenthesisIndex } from './utils';
 
 const { Calculation, Parenthesis, NegateParenthesis } = Expression;
 const { Final, Step, ParseError } = ASTStep;
-
-// finds out the index of matching right parenthesis recursively
-// not that the starting left parenthesis is not included in tokens
-// Token, Int, Int -> Int
-export const getMatchingRightParenthesisIndex = (tokens, acc=0, level=0) => {
-    const indexRight = tokens.indexOf(Token.RightParenthesis);
-    const indexLeft = tokens.indexOf(Token.LeftParenthesis);
-    if (R.equals(indexRight, -1)) {
-        return -1;
-    } else if(notEquals(indexLeft, -1) && R.lt(indexLeft, indexRight)) {
-        // case sub parentheses
-        return getMatchingRightParenthesisIndex(R.takeLast(tokens.length - (indexLeft + 1), tokens), acc + indexLeft  + 1, level + 1);
-    } else if(notEquals(indexRight, -1) && notEquals(level, 0)) {
-        // returning from sub parentheses
-        return getMatchingRightParenthesisIndex(R.takeLast(tokens.length - (indexRight + 1), tokens), acc + indexRight + 1, level - 1);
-    }
-    return indexRight + acc;
-};
 
 // convertToFinalIfNeeded => ASTStep -> ASTStep
 // Converts the step to ASTStep.Final if there are no more tokens
